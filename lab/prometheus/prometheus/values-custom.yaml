@@ -1,7 +1,7 @@
 global:
   cluster: undefined-cluster-name
   remoteWrite:
-    enabled : false
+    enabled : true
 
 server:
   global:
@@ -42,69 +42,26 @@ serverFiles:
   recording_rules.yml:
     groups:
       - name: "istio.sum_by"
-        interval: 10s
+        interval: 1m
         rules:
-          - record: "workload:istio_requests:by_destination_workload:rate5m"
+          - record: "workload:test_istio_requests:by_source_destination:available:rate1m"
             expr: |
-              sum(irate(istio_requests_total{reporter="destination"}[5m]))
+              sum(rate(istio_requests_total{reporter="source",source_workload="curl",response_code!~"5..|0"}[1m]))
               by (
-                destination_workload,
-                destination_workload_namespace
+                source_workload,
+                destination_service_name
               )
-
-          - record: "workload:istio_request_duration_milliseconds_bucket:p95:rate5m"
+          - record: "workload:test_istio_requests:by_source_destination:unavailable:rate1m"
             expr: |
-              histogram_quantile(0.95,
-                sum(irate(istio_request_duration_milliseconds_bucket{reporter="source"}[5m]))
-                by (
-                  destination_workload,
-                  destination_workload_namespace,
-                  source_workload,
-                  source_workload_namespace,
-                  le
-                )
+              sum(rate(istio_requests_total{reporter="source",source_workload="curl",response_code=~"5..|0"}[1m]))
+              by (
+                source_workload,
+                destination_service_name
               )
-
-      - name: "istio.sum"
-        interval: 10s
-        rules:
-          - record: "workload:istio_requests_total"
+          - record: "workload:test_istio_requests:by_source_destination:availability"
             expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_requests_total)
-
-          - record: "workload:istio_request_bytes_count"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_request_bytes_count)
-
-          - record: "workload:istio_request_bytes_sum"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_request_bytes_sum)
-
-          - record: "workload:istio_response_bytes_count"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_response_bytes_count)
-
-          - record: "workload:istio_response_bytes_sum"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_response_bytes_sum)
-
-          - record: "workload:istio_tcp_sent_bytes_total"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_tcp_sent_bytes_total)
-
-          - record: "workload:istio_tcp_received_bytes_total"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_tcp_received_bytes_total)
-
-          - record: "workload:istio_tcp_connections_opened_total"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_tcp_connections_opened_total)
-
-          - record: "workload:istio_tcp_connections_closed_total"
-            expr: |
-              sum without(instance, kubernetes_namespace, kubernetes_pod_name) (istio_tcp_connections_closed_total)
-
-  prometheus.yml:
+              sum(0*(rate(istio_requests_total{reporter="source",response_code!~"5..|0"}[1m]) == 0) or (clamp(rate(istio_requests_total{reporter="source",response_code!~"5..|0"}[1m]),1,1))) by (destination_service_name)
+    prometheus.yml:
     rule_files:
       - /etc/config/recording_rules.yml
       - /etc/config/alerting_rules.yml
